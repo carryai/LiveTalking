@@ -4,6 +4,8 @@
 
 import json
 import asyncio
+import os
+import time
 from aiohttp import web
 
 from utils.logger import logger
@@ -34,8 +36,18 @@ from server.session_manager import session_manager
 from server.avatar_routes import setup_avatar_routes
 
 def get_session(request, sessionid: str):
-    """从 app 中获取 session 实例"""
-    return session_manager.get_session(sessionid)
+    """从 app 中获取 session 实例
+
+    Every handler that resolves a session comes through here, so this is also where
+    activity is recorded for the idle reaper (rtc_manager.reap_idle reads
+    `last_activity` off the session object). WITHOUT THIS the reaper measures idle
+    time from session creation, so it would close sessions that are actively being
+    used as soon as the timeout elapses.
+    """
+    session = session_manager.get_session(sessionid)
+    if session is not None:
+        session.last_activity = time.time()
+    return session
 
 
 # ─── 路由处理函数 ──────────────────────────────────────────────────────────
@@ -207,10 +219,20 @@ async def admin_sessions(request):
         for sid, avatar_session in session_manager.sessions.items():
             if avatar_session:
                 s_opt = getattr(avatar_session, 'opt', None)
+                # idle = time since anything last used this session (every handler
+                # goes through get_session(), which stamps last_activity). The reaper
+                # closes a session once idle exceeds GF_SESSION_IDLE_SECONDS, so the
+                # UI can show a countdown instead of the link dropping unannounced.
+                idle_timeout = float(os.environ.get("GF_SESSION_IDLE_SECONDS", "300"))
+                last = getattr(avatar_session, 'last_activity', None)
+                idle_s = round(time.time() - last, 1) if last else 0.0
                 s_data = {
                     "sessionid": sid,
                     "speaking": avatar_session.is_speaking() if hasattr(avatar_session, 'is_speaking') else False,
                     "recording": getattr(avatar_session, 'recording', False),
+                    "idle_seconds": idle_s,
+                    "idle_timeout": idle_timeout,
+                    "closes_in_seconds": max(0.0, round(idle_timeout - idle_s, 1)),
                 }
                 if s_opt:
                     s_data.update({
@@ -225,6 +247,26 @@ async def admin_sessions(request):
         return json_ok(data={"sessions": sessions_info})
     except Exception as e:
         logger.exception('admin_sessions exception:')
+        return json_error(str(e))
+
+
+async def admin_kill_session(request):
+    """Admin: 强制关闭指定会话（或全部）"""
+    try:
+        body = await request.json()
+        target = body.get("sessionid")          # None → kill all
+        killed = []
+        if target:
+            if target in session_manager.sessions:
+                session_manager.remove_session(target)
+                killed.append(target)
+        else:
+            for sid in list(session_manager.sessions.keys()):
+                session_manager.remove_session(sid)
+                killed.append(sid)
+        return json_ok(data={"killed": killed})
+    except Exception as e:
+        logger.exception('admin_kill_session exception:')
         return json_error(str(e))
 
 
@@ -252,6 +294,7 @@ def setup_routes(app):
     app.router.add_post("/is_speaking", is_speaking)
     app.router.add_get("/api/admin/config", admin_config)
     app.router.add_get("/api/admin/sessions", admin_sessions)
+    app.router.add_post("/api/admin/kill_session", admin_kill_session)
     app.router.add_get('/sse', sse_handler)
 
     # ── Local ASR endpoint (SenseVoice/FunASR) ── Issue #604 ──

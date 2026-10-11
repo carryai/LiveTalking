@@ -16,6 +16,16 @@ class EdgeTTS(BaseTTS):
         text,textevent = msg
         voice = self.opt.REF_FILE or "zh-CN-YunxiaNeural" 
         voicename = textevent.get('tts', {}).get('ref_file',voice) #self.opt.REF_FILE #"zh-CN-YunxiaNeural"
+        # Route macOS `say` voices to the local backend. Every edge-tts id contains a
+        # dash (zh-HK-HiuGaaiNeural); a bare name like "Wing"/"Sinji"/"Fung" is a
+        # system voice, and edge-tts rejects it outright:
+        #     ValueError: Invalid voice 'Wing'
+        # The failure is silent from the caller's side — /human still returns ok —
+        # so she simply never speaks: no audio and no lip movement.
+        if voicename and "-" not in voicename:
+            from .macsay import speak_with_say
+            speak_with_say(self, msg)
+            return
         t = time.time()
         asyncio.new_event_loop().run_until_complete(self.__main(voicename,text))
         logger.info(f'-------edge tts time:{time.time()-t:.4f}s')
