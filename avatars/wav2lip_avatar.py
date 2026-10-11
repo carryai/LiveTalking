@@ -131,6 +131,24 @@ class CoreMLWav2Lip:
             pad = target - b
             m = np.concatenate([m, np.repeat(m[-1:], pad, axis=0)], axis=0)
             i = np.concatenate([i, np.repeat(i[-1:], pad, axis=0)], axis=0)
+        # The compiled graph is fixed at res x res. An avatar built with a different
+        # img_size (300, 400 ...) would otherwise fail the shape check, and the
+        # failure surfaces as a frozen mouth with no obvious error. Resize instead
+        # of refusing, so any avatar still lip-syncs.
+        if i.shape[2] != self.res or i.shape[3] != self.res:
+            if not getattr(self, "_warned_res", False):
+                logger.warning(f"CoreML wav2lip: avatar crops are {i.shape[3]}x{i.shape[2]}, "
+                               f"resizing to {self.res}x{self.res}. Rebuild the avatar "
+                               f"with img_size={self.res} for best quality.")
+                self._warned_res = True
+            # 6 channels = masked face (3) + reference face (3); cv2.resize tops out
+            # at 4 channels, so resize the two halves as separate images
+            i = np.stack([np.concatenate([
+                cv2.resize(f[:3].transpose(1, 2, 0), (self.res, self.res),
+                           interpolation=cv2.INTER_AREA).transpose(2, 0, 1),
+                cv2.resize(f[3:].transpose(1, 2, 0), (self.res, self.res),
+                           interpolation=cv2.INTER_AREA).transpose(2, 0, 1)], axis=0)
+                for f in i], axis=0)
         t0 = time.time()
         out = list(model.predict({"mel": m, "img": i}).values())[0]
         self._last_ms = (time.time() - t0) * 1000.0 / max(b, 1)
