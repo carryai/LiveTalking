@@ -22,6 +22,7 @@ import math
 import torch
 import numpy as np
 
+import json
 import os
 import time
 import cv2
@@ -45,8 +46,100 @@ from utils.image import read_imgs, mirror_index
 from utils.device import initialize_device
 from registry import register
 
-device = initialize_device()
-logger.info('Using {} for inference.'.format(device))
+# ── inference backend ────────────────────────────────────────────────────────
+# torch  = PyTorch on MPS/CPU (original path)
+# coreml = the same model compiled for the Apple Neural Engine. Wav2Lip is
+#          fixed-shape pure conv, which is what the ANE is for: measured 8.7 ms /
+#          frame at batch 16 vs 30.2 on MPS (~3.5x), and it frees the GPU.
+#          Build the models with voice-gf/tools/convert_wav2lip_coreml.py.
+BACKEND = os.environ.get("GF_WAV2LIP_BACKEND", "torch").strip().lower()
+COREML_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "models", "wav2lip_coreml")
+COREML_FALLBACK_BATCH = 16
+# where the ANE path publishes its own rolling inference timing for /metrics
+ANE_STATS_PATH = "/tmp/wav2lip_ane_stats.json"
+
+# With the ANE backend the tensors stay on the CPU deliberately: inference_batch
+# does `.to(device)`, and copying to the Metal GPU only to hand the data back
+# would add a pointless round trip per frame.
+device = torch.device("cpu") if BACKEND == "coreml" else initialize_device()
+logger.info('Using {} for inference (backend={}).'.format(device, BACKEND))
+
+
+class CoreMLWav2Lip:
+    """Drop-in replacement for the torch model, running on the Neural Engine.
+
+    Returns a CPU tensor of the same (B,3,H,W) shape the caller expects, so
+    `inference_batch` needs no changes. The compiled graph has a fixed batch, so
+    other sizes are padded by repeating the last sample and trimmed afterwards —
+    that keeps any `batch_size` in config.yaml working.
+    """
+
+    def __init__(self, res=256):
+        self.res = res
+        self._models = {}
+        self._frames = 0
+        self._last_ms = 0.0
+        self._last_write = 0.0
+
+    def _pick(self, batch):
+        exact = os.path.join(COREML_DIR, f"wav2lip_b{batch}.mlpackage")
+        if os.path.exists(exact):
+            return batch, exact
+        fallback = os.path.join(COREML_DIR,
+                                f"wav2lip_b{COREML_FALLBACK_BATCH}.mlpackage")
+        if os.path.exists(fallback):
+            return COREML_FALLBACK_BATCH, fallback
+        raise FileNotFoundError(
+            f"no CoreML model in {COREML_DIR}. Build one with:\n"
+            f"  ./livetalking/venv/bin/python voice-gf/tools/convert_wav2lip_coreml.py "
+            f"--batches 1,{batch}")
+
+    def _model(self, batch):
+        key, path = self._pick(batch)
+        if key not in self._models:
+            import coremltools as ct
+            logger.info(f"Loading CoreML wav2lip (batch {key}) from {path}")
+            self._models[key] = ct.models.MLModel(
+                path, compute_units=ct.ComputeUnit.CPU_AND_NE)
+        return key, self._models[key]
+
+    def _write_stats(self):
+        """Publish rolling inference timing for /metrics. Atomic (tmp + rename) and
+        JSON-safe: an MLModel object is not serialisable, and a mid-write failure
+        would otherwise leave a truncated file behind."""
+        try:
+            payload = {"backend": "coreml", "device": "ane",
+                       "ms_per_frame": round(self._last_ms, 2),
+                       "fps": round(1000.0 / self._last_ms, 1) if self._last_ms else None,
+                       "frames_total": self._frames,
+                       "batches": sorted(int(k) for k in self._models),
+                       "updated": round(time.time(), 2)}
+            tmp = ANE_STATS_PATH + ".tmp"
+            with open(tmp, "w") as f:
+                json.dump(payload, f)
+            os.replace(tmp, ANE_STATS_PATH)
+        except Exception as e:
+            logger.warning(f"ANE stats write failed: {e}")
+
+    def __call__(self, mel, img):
+        target, model = self._model(int(mel.shape[0]))
+        m = np.ascontiguousarray(mel.detach().cpu().numpy(), dtype=np.float32)
+        i = np.ascontiguousarray(img.detach().cpu().numpy(), dtype=np.float32)
+        b = m.shape[0]
+        if b != target:
+            pad = target - b
+            m = np.concatenate([m, np.repeat(m[-1:], pad, axis=0)], axis=0)
+            i = np.concatenate([i, np.repeat(i[-1:], pad, axis=0)], axis=0)
+        t0 = time.time()
+        out = list(model.predict({"mel": m, "img": i}).values())[0]
+        self._last_ms = (time.time() - t0) * 1000.0 / max(b, 1)
+        self._frames += b
+        now = time.time()
+        if now - self._last_write > 1.0:
+            self._last_write = now
+            self._write_stats()
+        return torch.from_numpy(np.asarray(out)[:b])
 
 def _load(checkpoint_path):
     if device == 'cuda':
@@ -57,6 +150,9 @@ def _load(checkpoint_path):
     return checkpoint
 
 def load_model(path):
+    if BACKEND == "coreml":
+        logger.info("wav2lip backend=coreml — using the Neural Engine")
+        return CoreMLWav2Lip()
     model = Wav2Lip()
     logger.info("Load checkpoint from: {}".format(path))
     checkpoint = _load(path)
