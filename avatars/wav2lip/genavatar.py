@@ -1,5 +1,6 @@
 from os import listdir, path
-import numpy as np
+import numpy
+import os as np
 import scipy, cv2, os, sys, argparse
 import json, subprocess, random, string
 from tqdm import tqdm
@@ -24,7 +25,10 @@ def video2imgs(vid_path, save_path, ext = '.png',cut_frame = 10000000):
             break
         ret, frame = cap.read()
         if ret:
-            cv2.putText(frame, "LiveTalking", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.3, (128,128,128), 1)
+            # no watermark: it would be baked into full_imgs forever
+            if os.environ.get("GF_WATERMARK", "0") == "1":
+                cv2.putText(frame, "LiveTalking", (10, 20), cv2.FONT_HERSHEY_SIMPLEX,
+                            0.3, (128,128,128), 1)
             cv2.imwrite(f"{save_path}/{count:08d}.png", frame)
             count += 1
         else:
