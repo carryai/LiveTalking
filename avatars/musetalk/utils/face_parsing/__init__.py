@@ -56,15 +56,14 @@ class FaceParsing():
         cv2.rectangle(mask, (center + right_cheek_width, 0), (512, 512), 255, -1)  # Right cheek
         return mask
 
-    def model_init(self, 
-                   resnet_path='./models/face-parse-bisent/resnet18-5c106cde.pth', 
+    def model_init(self,
+                   resnet_path='./models/face-parse-bisent/resnet18-5c106cde.pth',
                    model_pth='./models/face-parse-bisent/79999_iter.pth'):
+        from utils.device import initialize_device
+        device = initialize_device()
         net = BiSeNet(resnet_path)
-        if torch.cuda.is_available():
-            net.cuda()
-            net.load_state_dict(torch.load(model_pth)) 
-        else:
-            net.load_state_dict(torch.load(model_pth, map_location=torch.device('cpu')))
+        net.to(device)
+        net.load_state_dict(torch.load(model_pth, map_location=device))
         net.eval()
         return net
 
@@ -82,10 +81,7 @@ class FaceParsing():
         with torch.no_grad():
             image = image.resize(size, Image.BILINEAR)
             img = self.preprocess(image)
-            if torch.cuda.is_available():
-                img = torch.unsqueeze(img, 0).cuda()
-            else:
-                img = torch.unsqueeze(img, 0)
+            img = torch.unsqueeze(img, 0).to(self.net.parameters().__next__().device)
             out = self.net(img)[0]
             parsing = out.squeeze(0).cpu().numpy().argmax(0)
             

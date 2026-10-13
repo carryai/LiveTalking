@@ -23,10 +23,12 @@ class VAE():
         self.model_path = model_path
         self.vae = AutoencoderKL.from_pretrained(self.model_path)
 
-        self.device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()) else "cpu"))
+        from utils.device import initialize_device
+        self.device = initialize_device()
         self.vae.to(self.device)
 
-        if use_float16:
+        # MPS does not support fp16 for many ops; force fp32 on MPS.
+        if use_float16 and self.device.type != "mps":
             self.vae = self.vae.half()
             self._use_float16 = True
         else:

@@ -20,7 +20,8 @@ from tqdm import tqdm
 # model = init_model(config_file, checkpoint_file, device=device)
 
 # initialize the face detection model
-device = "cuda" if torch.cuda.is_available() else "cpu"
+from utils.device import initialize_device
+device = initialize_device()
 fa = FaceAlignment(LandmarksType._2D, flip_input=False,device=device)
 
 # maker if the bbox is not sufficient 

@@ -104,9 +104,14 @@ def generate_avatar(video_path, avatar_id, save_path='./data/avatars', bbox_shif
     idx = -1
     coord_placeholder = (0.0, 0.0, 0.0, 0.0)
 
-    device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
+    from utils.device import initialize_device
+    device = initialize_device()
     vae_local, unet_local, pe_local = load_all_model(device=device)
-    vae_local.vae = vae_local.vae.half().to(device)
+    # MPS does not support fp16 reliably; skip .half() on MPS.
+    if device.type != "mps":
+        vae_local.vae = vae_local.vae.half().to(device)
+    else:
+        vae_local.vae = vae_local.vae.to(device)
 
     if version == "v15":
         fp_local = FaceParsing(left_cheek_width=90, right_cheek_width=90)

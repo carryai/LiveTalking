@@ -40,8 +40,9 @@ class UNet():
         if device != None:
             self.device = device
         else:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        weights = torch.load(model_path) if torch.cuda.is_available() else torch.load(model_path, map_location=self.device)
+            from utils.device import initialize_device
+            self.device = initialize_device()
+        weights = torch.load(model_path, map_location=self.device)
         self.model.load_state_dict(weights)
         if use_float16:
             self.model = self.model.half()

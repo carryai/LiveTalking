@@ -9,8 +9,10 @@ from transformers import WhisperModel
 import torch
 sys.path.append("..")
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-weight_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
+from utils.device import initialize_device
+device = initialize_device()
+# MPS does not support fp16 reliably; use fp32 on MPS.
+weight_dtype = torch.float16 if device.type == "cuda" else torch.float32
 class Audio2Feature():
     def __init__(self, 
                  whisper_model_type="tiny",
