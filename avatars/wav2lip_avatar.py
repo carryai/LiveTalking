@@ -61,6 +61,21 @@ COREML_FALLBACK_BATCH = 16
 # where the ANE path publishes its own rolling inference timing for /metrics
 ANE_STATS_PATH = "/tmp/wav2lip_ane_stats.json"
 
+# ── model weights ─────────────────────────────────────────────────────────────
+# GF_WAV2LIP_WEIGHTS: which checkpoint to load (default: wav2lip_gan.pth)
+#   wav2lip_gan.pth — GAN-trained, better high-frequency texture (teeth, lips)
+#   wav2lip.pth     — L1-trained, smoother but darker mouth interior
+WEIGHTS_FILE = os.environ.get("GF_WAV2LIP_WEIGHTS", "wav2lip_gan.pth").strip()
+WEIGHTS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "models", WEIGHTS_FILE)
+
+# ── face mask ─────────────────────────────────────────────────────────────────
+# GF_WAV2LIP_MASK_TOP: fraction of face height to mask (0.0 = no mask, 1.0 = full mask)
+#   Default 0.58 keeps jawline/chin as reference while leaving mouth free to move.
+#   Lower values (0.50) give the model more context but may reduce mouth mobility.
+#   Higher values (0.62) give more mouth freedom but require more hallucination.
+MASK_TOP = float(os.environ.get("GF_WAV2LIP_MASK_TOP", "0.58"))
+
 # With the ANE backend the tensors stay on the CPU deliberately: inference_batch
 # does `.to(device)`, and copying to the Metal GPU only to hand the data back
 # would add a pointless round trip per frame.
@@ -85,17 +100,19 @@ class CoreMLWav2Lip:
         self._last_write = 0.0
 
     def _pick(self, batch):
-        exact = os.path.join(COREML_DIR, f"wav2lip_b{batch}.mlpackage")
+        # Use the same weights filename for CoreML models (e.g., wav2lip_gan_b16.mlpackage)
+        weights_base = os.path.splitext(WEIGHTS_FILE)[0]  # "wav2lip_gan" or "wav2lip"
+        exact = os.path.join(COREML_DIR, f"{weights_base}_b{batch}.mlpackage")
         if os.path.exists(exact):
             return batch, exact
         fallback = os.path.join(COREML_DIR,
-                                f"wav2lip_b{COREML_FALLBACK_BATCH}.mlpackage")
+                                f"{weights_base}_b{COREML_FALLBACK_BATCH}.mlpackage")
         if os.path.exists(fallback):
             return COREML_FALLBACK_BATCH, fallback
         raise FileNotFoundError(
-            f"no CoreML model in {COREML_DIR}. Build one with:\n"
+            f"no CoreML model in {COREML_DIR} for weights={WEIGHTS_FILE}. Build one with:\n"
             f"  ./livetalking/venv/bin/python voice-gf/tools/convert_wav2lip_coreml.py "
-            f"--batches 1,{batch}")
+            f"--batches 1,{batch} --weights {WEIGHTS_FILE}")
 
     def _model(self, batch):
         key, path = self._pick(batch)
@@ -250,11 +267,14 @@ class LipReal(BaseAvatar):
         img_batch, audiofeat_batch = np.asarray(img_batch), np.asarray(audiofeat_batch)
 
         img_masked = img_batch.copy()
-        img_masked[:, face.shape[0]//2:] = 0
+        # Mask configurable: MASK_TOP fraction of face height (default 0.58)
+        # Keeps jawline/chin as reference while leaving mouth free to move
+        mask_start = int(face.shape[0] * MASK_TOP)
+        img_masked[:, mask_start:] = 0
 
         img_batch = np.concatenate((img_masked, img_batch), axis=3) / 255.
         audiofeat_batch = np.reshape(audiofeat_batch, [len(audiofeat_batch), audiofeat_batch.shape[1], audiofeat_batch.shape[2], 1])
-        
+
         img_batch = torch.FloatTensor(np.transpose(img_batch, (0, 3, 1, 2))).to(device)
         audiofeat_batch = torch.FloatTensor(np.transpose(audiofeat_batch, (0, 3, 1, 2))).to(device)
 

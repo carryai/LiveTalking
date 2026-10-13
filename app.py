@@ -145,7 +145,8 @@ def main():
         global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id) 
         warm_up(opt.batch_size,model)      
     elif opt.model == 'wav2lip':
-        model = load_model("./models/wav2lip.pth")
+        from avatars.wav2lip_avatar import WEIGHTS_PATH
+        model = load_model(WEIGHTS_PATH)
         global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id)
         warm_up(opt.batch_size,model,256)
     elif opt.model == 'ultralight':
