@@ -45,6 +45,7 @@ from utils.logger import logger
 from utils.image import read_imgs, mirror_index
 from utils.device import initialize_device
 from utils.blend import composite as _feather_composite, BLEND_MODE, BLEND_SIGMA
+from avatars.restore import RESTORE_ENABLED, Restorer
 from registry import register
 
 # ── inference backend ────────────────────────────────────────────────────────
@@ -227,6 +228,15 @@ class LipReal(BaseAvatar):
 
         self.asr = MelASR(opt,self)
         self.asr.warm_up()
+
+        # Restoration is opt-in and off by default: nothing is imported or loaded
+        # unless GF_RESTORE says so, so the normal path pays nothing for it. See
+        # avatars/restore.py for the measured cost and why it is amortised.
+        self.restore = Restorer() if RESTORE_ENABLED else None
+        if self.restore is not None:
+            logger.info(f"restore enabled: {self.restore.backend.name} "
+                        f"({getattr(self.restore.backend, 'size', '?')}², budget "
+                        f"{self.restore.governor.budget_ms:.0f} ms/frame)")
     
     def inference_batch(self, index, audiofeat_batch):
         # 这里的 index 是针对当前 avatar 的索引
@@ -251,6 +261,12 @@ class LipReal(BaseAvatar):
         with torch.no_grad():
             pred = self.model(audiofeat_batch, img_batch)
         pred = pred.cpu().numpy().transpose(0, 2, 3, 1) * 255.
+
+        # Restoring costs ~171 ms/frame here, so it is never unconditional: the
+        # governor decides how many frames get it and the others reuse its
+        # residual. Off means this branch is never even reached.
+        if self.restore is not None:
+            pred = self.restore.process(pred)
         return pred
 
     def paste_back_frame(self,pred_frame,idx:int):
