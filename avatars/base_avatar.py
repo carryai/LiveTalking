@@ -85,6 +85,10 @@ class BaseAvatar:
         self.batch_size = opt.batch_size
         self.res_frame_queue = Queue(self.batch_size*2)
         self.render_event = Event()
+        # set by subclasses that actually restore (wav2lip today); surfaced in the
+        # server-side stats file so /metrics can attribute the restoration cost
+        self.restore = None
+        self._restore_stats_written = 0.0
 
         _tts_modules = {
             'edgetts': 'tts.edge',
@@ -495,6 +499,18 @@ class BaseAvatar:
             if buffer_size >= 5:
                 logger.debug('sleep qsize=%d', buffer_size)
                 time.sleep(0.04 * buffer_size * 0.8)
+
+            # publish the restoration governor's own numbers once a second, even
+            # between utterances, so a Dean-set mode change is visible in /metrics
+            if getattr(self, "restore", None) is not None:
+                now = time.time()
+                if now - self._restore_stats_written > 1.0:
+                    self._restore_stats_written = now
+                    try:
+                        from avatars.restore import write_stats
+                        write_stats(self.restore.stats())
+                    except Exception:
+                        pass
         logger.info('baseavatar render thread stop')
 
         infer_quit_event.set()
