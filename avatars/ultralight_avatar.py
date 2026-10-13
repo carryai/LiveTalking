@@ -50,6 +50,7 @@ from avatars.ultralight.audio2feature import Audio2Feature
 from utils.logger import logger
 from utils.image import read_imgs, mirror_index
 from utils.device import initialize_device
+from utils.blend import composite as _feather_composite, BLEND_MODE, BLEND_SIGMA
 from registry import register
 
 device = initialize_device()
@@ -175,12 +176,18 @@ class LightReal(BaseAvatar):
         combine_frame = self.frame_list_cycle[idx].copy()
         x1, y1, x2, y2 = bbox
 
+        if BLEND_MODE == "hard":
+            crop_img = self.face_list_cycle[idx]
+            crop_img_ori = crop_img.copy()
+            crop_img_ori[4:164, 4:164] = pred_frame.astype(np.uint8)
+            crop_img_ori = cv2.resize(crop_img_ori, (x2-x1,y2-y1))
+            combine_frame[y1:y2, x1:x2] = crop_img_ori
+            return combine_frame
+
         crop_img = self.face_list_cycle[idx]
         crop_img_ori = crop_img.copy()
-
         crop_img_ori[4:164, 4:164] = pred_frame.astype(np.uint8)
-        crop_img_ori = cv2.resize(crop_img_ori, (x2-x1,y2-y1))
-        combine_frame[y1:y2, x1:x2] = crop_img_ori
-        return combine_frame
+        return _feather_composite(combine_frame, crop_img_ori, x1, y1, x2, y2,
+                                  sigma=BLEND_SIGMA)
 
             

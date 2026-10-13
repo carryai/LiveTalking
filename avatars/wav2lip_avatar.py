@@ -44,6 +44,7 @@ from tqdm import tqdm
 from utils.logger import logger
 from utils.image import read_imgs, mirror_index
 from utils.device import initialize_device
+from utils.blend import composite as _feather_composite, BLEND_MODE, BLEND_SIGMA
 from registry import register
 
 # ── inference backend ────────────────────────────────────────────────────────
@@ -256,7 +257,12 @@ class LipReal(BaseAvatar):
         bbox = self.coord_list_cycle[idx]
         combine_frame = self.frame_list_cycle[idx].copy()
         y1, y2, x1, x2 = bbox
-        res_frame = cv2.resize(pred_frame.astype(np.uint8),(x2-x1,y2-y1))
-        combine_frame[y1:y2, x1:x2] = res_frame
-        return combine_frame
+
+        if BLEND_MODE == "hard":
+            res_frame = cv2.resize(pred_frame.astype(np.uint8),(x2-x1,y2-y1))
+            combine_frame[y1:y2, x1:x2] = res_frame
+            return combine_frame
+
+        return _feather_composite(combine_frame, pred_frame, x1, y1, x2, y2,
+                                  sigma=BLEND_SIGMA)
 
