@@ -62,10 +62,17 @@ COREML_FALLBACK_BATCH = 16
 ANE_STATS_PATH = "/tmp/wav2lip_ane_stats.json"
 
 # ── model weights ─────────────────────────────────────────────────────────────
-# GF_WAV2LIP_WEIGHTS: which checkpoint to load (default: wav2lip_gan.pth)
-#   wav2lip_gan.pth — GAN-trained, better high-frequency texture (teeth, lips)
-#   wav2lip.pth     — L1-trained, smoother but darker mouth interior
-WEIGHTS_FILE = os.environ.get("GF_WAV2LIP_WEIGHTS", "wav2lip_gan.pth").strip()
+# GF_WAV2LIP_WEIGHTS: which checkpoint to load (default: wav2lip.pth)
+#   wav2lip.pth — the checkpoint this repo's Wav2Lip class is built for (380
+#                 tensors, 0 mismatched).
+#   wav2lip_gan.pth — DO NOT set this with the file currently on disk. It is not
+#                 the GAN-trained twin of wav2lip.pth (same architecture, better
+#                 training); it is a different network: 352 keys, 74 shape
+#                 mismatches, 35 missing and 7 unexpected, with 1x1/4x4 kernels
+#                 and an extra encoder block. load_state_dict rejects it, so the
+#                 avatar fails to start and CoreML conversion cannot run.
+#                 Point this at a real same-architecture GAN checkpoint only.
+WEIGHTS_FILE = os.environ.get("GF_WAV2LIP_WEIGHTS", "wav2lip.pth").strip()
 WEIGHTS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                             "models", WEIGHTS_FILE)
 
