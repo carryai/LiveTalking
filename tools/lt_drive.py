@@ -23,7 +23,43 @@ import aiohttp
 from aiortc import RTCPeerConnection, RTCConfiguration, RTCSessionDescription
 
 DEFAULT_BASE = "http://127.0.0.1:8010"
-DEFAULT_AVATAR = "wav2lip_avatar_female_model"
+
+
+def _default_avatar() -> str:
+    """An avatar id that actually exists.
+
+    Hardcoding one is how `lt_drive` started returning WHEP 500 — the old
+    `wav2lip_avatar_female_model` directory no longer exists, and LiveTalking
+    answers a missing avatar with a traceback, not a useful error.
+    """
+    root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "data", "avatars")
+    wanted = os.environ.get("GF_AVATAR", "").strip()
+    if not wanted:
+        # gf_server reads GF_AVATAR from the project .env; mirror that so a test
+        # drives the same avatar the page does instead of an arbitrary directory.
+        env_path = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__)))), ".env")
+        try:
+            with open(env_path, encoding="utf-8") as fh:
+                for line in fh:
+                    if line.startswith("GF_AVATAR="):
+                        wanted = line.split("=", 1)[1].strip().strip('"\'')
+                        break
+        except OSError:
+            pass
+    if wanted and os.path.exists(os.path.join(root, wanted, "coords.pkl")):
+        return wanted
+    try:
+        for name in sorted(os.listdir(root)):
+            if os.path.exists(os.path.join(root, name, "coords.pkl")):
+                return name
+    except OSError:
+        pass
+    return "wav2lip_avatar_female_model"
+
+
+DEFAULT_AVATAR = _default_avatar()
 # Cantonese female; LiveTalking's own default is zh-CN-YunxiaNeural (male Mandarin)
 DEFAULT_VOICE = "Wing"           # macOS say voice; Cantonese female ~222 Hz
 

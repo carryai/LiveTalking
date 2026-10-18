@@ -54,6 +54,7 @@ def get_session(request, sessionid: str):
 
 async def human(request):
     """文本输入（echo/chat 模式），支持 voice/emotion 参数"""
+    t_route = time.perf_counter()
     try:
         params: dict = await request.json()
 
@@ -78,6 +79,11 @@ async def human(request):
                     None, llm_response, params['text'], avatar_session, datainfo
                 )
 
+        # Server-side cost of accepting a clause. If this is milliseconds but the
+        # client sees seconds, the request waited in the event loop queue — which is
+        # what a starved render thread looks like from gf_server's side.
+        logger.info("human route took %.3fs (text=%r)",
+                    time.perf_counter() - t_route, (params.get('text') or '')[:24])
         return json_ok()
     except Exception as e:
         logger.exception('human route exception:')

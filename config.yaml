@@ -4,14 +4,23 @@
 ###############################################################################
 
 # -------- Audio ----------------------------------------------------------
+# l/r are audio-frame strides (20 ms each) around the video frame being
+# generated. l is left context (startup cost only); r is FUTURE audio the
+# pipeline must wait for before it can emit a frame, so it is pure latency.
+# 10/10 = 200 ms each. r=5 trades some Wav2Lip context for ~100 ms less
+# end-to-end delay; the 16-frame mel window still spans 200 ms of speech.
 l: 10
 m: 8
-r: 10
+r: 5
 
 # -------- Avatar Model ----------------------------------------------------------
 model: wav2lip                 # musetalk / wav2lip / ultralight
 avatar_id: wav2lip256_avatar1
-batch_size: 8
+# inference() blocks until batch_size*2 audio chunks (40 ms of audio each)
+# are queued, so this is also a latency knob: 8 → 320 ms of audio buffered
+# per batch, 4 → 160 ms. The ANE runs at ~100 fps, so 4 still leaves ~2x
+# headroom over the 25 fps playback rate.
+batch_size: 4
 
 # -------- Custom Actions ----------------------------------------------------------
 customvideo_config: ''
