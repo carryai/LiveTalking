@@ -1,6 +1,5 @@
 from os import listdir, path
-import numpy
-import os as np
+import numpy as np
 import scipy, cv2, os, sys, argparse
 import json, subprocess, random, string
 from tqdm import tqdm

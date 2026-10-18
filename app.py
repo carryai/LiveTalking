@@ -130,6 +130,7 @@ def main():
     # ─── 加载 avatar 插件（触发 @register 注册）──────────────────────
     _avatar_modules = {
         'musetalk':   'avatars.musetalk_avatar',
+        'musetalk-mlx': 'avatars.musetalk_mlx_avatar',
         'wav2lip':    'avatars.wav2lip_avatar',
         'ultralight': 'avatars.ultralight_avatar',
     }
@@ -149,6 +150,10 @@ def main():
         model = load_model(WEIGHTS_PATH)
         global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id)
         warm_up(opt.batch_size,model,256)
+    elif opt.model == 'musetalk-mlx':
+        model = load_model()
+        global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id)
+        warm_up(opt.batch_size, model)
     elif opt.model == 'ultralight':
         model = load_model(opt)
         global_avatars[opt.avatar_id] = load_avatar(opt.avatar_id)

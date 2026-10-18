@@ -103,7 +103,14 @@ def speak_with_say(tts, msg: tuple[str, dict]):
         return
 
     if sample_rate != tts.sample_rate and stream.shape[0] > 0:
-        stream = resampy.resample(x=stream, sr_orig=sample_rate, sr_new=tts.sample_rate)
+        if sample_rate == 24000 and tts.sample_rate == 16000:
+            try:
+                from scipy.signal import resample_poly
+                stream = resample_poly(stream, 2, 3).astype(np.float32)
+            except Exception:
+                stream = resampy.resample(x=stream, sr_orig=sample_rate, sr_new=tts.sample_rate)
+        else:
+            stream = resampy.resample(x=stream, sr_orig=sample_rate, sr_new=tts.sample_rate)
     logger.info(f"-------macsay tts time:{time.time() - t:.4f}s voice={voice} "
                 f"dur={stream.shape[0] / tts.sample_rate:.2f}s")
 

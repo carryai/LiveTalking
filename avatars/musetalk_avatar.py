@@ -57,11 +57,19 @@ logger.info('Using {} for inference.'.format(device))
 def load_model():
     # load model weights
     vae, unet, pe = load_all_model()
-    #device = torch.device("cuda" if torch.cuda.is_available() else ("mps" if (hasattr(torch.backends, "mps") and torch.backends.mps.is_available()) else "cpu"))
     timesteps = torch.tensor([0], device=device)
-    pe = pe.half().to(device)
-    vae.vae = vae.vae.half().to(device)
-    unet.model = unet.model.half().to(device)
+    # MPS does not do fp16 reliably, and the guards already added in
+    # models/vae.py (use_float16) and genavatar.py exist for exactly this — but they
+    # were defeated here, because this caller called .half() unconditionally and
+    # overwrote whatever dtype the VAE had chosen for itself. Keep fp32 on MPS.
+    if device.type == "cuda":
+        pe = pe.half().to(device)
+        vae.vae = vae.vae.half().to(device)
+        unet.model = unet.model.half().to(device)
+    else:
+        pe = pe.to(device)
+        vae.vae = vae.vae.to(device)
+        unet.model = unet.model.to(device)
     # Initialize audio processor and Whisper model
     audio_processor = Audio2Feature(model_path="./models/whisper")
     return vae, unet, pe, timesteps, audio_processor

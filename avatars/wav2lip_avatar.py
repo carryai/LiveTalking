@@ -54,10 +54,13 @@ from registry import register
 #          fixed-shape pure conv, which is what the ANE is for: measured 8.7 ms /
 #          frame at batch 16 vs 30.2 on MPS (~3.5x), and it frees the GPU.
 #          Build the models with voice-gf/tools/convert_wav2lip_coreml.py.
-BACKEND = os.environ.get("GF_WAV2LIP_BACKEND", "torch").strip().lower()
 COREML_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                           "models", "wav2lip_coreml")
-COREML_FALLBACK_BATCH = 16
+_default_backend = "coreml" if os.path.isdir(COREML_DIR) and any(
+    name.endswith(".mlpackage") for name in os.listdir(COREML_DIR)
+) else "torch"
+BACKEND = os.environ.get("GF_WAV2LIP_BACKEND", _default_backend).strip().lower()
+COREML_FALLBACK_BATCH = 8
 # where the ANE path publishes its own rolling inference timing for /metrics
 ANE_STATS_PATH = "/tmp/wav2lip_ane_stats.json"
 

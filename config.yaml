@@ -11,7 +11,7 @@ r: 10
 # -------- Avatar Model ----------------------------------------------------------
 model: wav2lip                 # musetalk / wav2lip / ultralight
 avatar_id: wav2lip256_avatar1
-batch_size: 16
+batch_size: 8
 
 # -------- Custom Actions ----------------------------------------------------------
 customvideo_config: ''

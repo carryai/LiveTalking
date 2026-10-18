@@ -94,6 +94,30 @@ class TestReinhardColourTransfer:
         result = reinhard_colour_transfer(src, gen, mask)
         np.testing.assert_array_equal(result, gen)
 
+    def test_preserves_bgr_skin_tone_no_blue_shift(self):
+        """Skin tones in BGR have R > B. Ensure colour transfer does not return raw LAB or invert channels."""
+        src = np.full((64, 64, 3), [150, 180, 220], dtype=np.uint8)  # B=150, G=180, R=220
+        gen = np.full((64, 64, 3), [140, 170, 210], dtype=np.uint8)  # B=140, G=170, R=210
+        mask = feather_mask(64, 64)
+        result = reinhard_colour_transfer(src, gen, mask)
+        # Red channel (idx 2) must remain significantly higher than Blue channel (idx 0)
+        assert result[32, 32, 2] > result[32, 32, 0] + 30
+
+    def test_preserves_lip_saturation_and_contrast(self):
+        """Lips have vivid red pigmentation (high 'a' in LAB). Reinhard transfer must not clamp or desaturate lips."""
+        # Realistic face: mostly skin with lower redness (a~138), but center has red lips (a~175, BGR [110, 105, 175])
+        src = np.full((64, 64, 3), [140, 150, 175], dtype=np.uint8)
+        gen = np.full((64, 64, 3), [140, 150, 175], dtype=np.uint8)
+        # Add red lips in center of generated crop
+        gen[28:36, 24:40] = [110, 105, 175]
+        mask = feather_mask(64, 64)
+        result = reinhard_colour_transfer(src, gen, mask)
+
+        orig_lip_red = gen[32, 32, 2]
+        res_lip_red = result[32, 32, 2]
+        # Lip red channel should remain vivid (>165), not clamped down to skin levels (~150)
+        assert res_lip_red >= orig_lip_red - 5, f"Lip red dropped from {orig_lip_red} to {res_lip_red}"
+
 
 class TestComposite:
     def setup_method(self):

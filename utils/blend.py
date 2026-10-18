@@ -68,8 +68,8 @@ def reinhard_colour_transfer(
     The correction is clamped to +/- 2 sigma of the source to prevent a dark or
     blown-out frame from swinging the whole face.
     """
-    src_lab = cv2.cvtColor(src_crop, cv2.COLOR_RGB2LAB).astype(np.float32)
-    gen_lab = cv2.cvtColor(gen_crop, cv2.COLOR_RGB2LAB).astype(np.float32)
+    src_lab = cv2.cvtColor(src_crop, cv2.COLOR_BGR2LAB).astype(np.float32)
+    gen_lab = cv2.cvtColor(gen_crop, cv2.COLOR_BGR2LAB).astype(np.float32)
 
     m = mask if mask.ndim == 2 else mask[:, :, 0]
     m_bool = m > 0.1
@@ -77,20 +77,24 @@ def reinhard_colour_transfer(
         return gen_crop
 
     result = gen_lab.copy()
-    for ch in range(3):
+
+    # Channel 0 (L: lightness): match mean and contrast with a guarded scale factor
+    src_l = src_lab[:, :, 0][m_bool]
+    gen_l = gen_lab[:, :, 0][m_bool]
+    src_l_mean, src_l_std = src_l.mean(), src_l.std() + 1e-6
+    gen_l_mean, gen_l_std = gen_l.mean(), gen_l.std() + 1e-6
+    scale_l = np.clip(src_l_std / gen_l_std, 0.7, 1.4)
+    result[:, :, 0] = (gen_lab[:, :, 0] - gen_l_mean) * scale_l + src_l_mean
+
+    # Channels 1 & 2 (a, b: chrominance): mean shift only to align skin undertone
+    # without compressing or clamping lip saturation/lipstick
+    for ch in (1, 2):
         src_vals = src_lab[:, :, ch][m_bool]
         gen_vals = gen_lab[:, :, ch][m_bool]
+        result[:, :, ch] = gen_lab[:, :, ch] + (src_vals.mean() - gen_vals.mean())
 
-        src_mean, src_std = src_vals.mean(), src_vals.std() + 1e-6
-        gen_mean, gen_std = gen_vals.mean(), gen_vals.std() + 1e-6
-
-        normalised = (gen_lab[:, :, ch] - gen_mean) * (src_std / gen_std) + src_mean
-
-        lo = src_mean - 2.0 * src_std
-        hi = src_mean + 2.0 * src_std
-        result[:, :, ch] = np.clip(normalised, lo, hi)
-
-    return np.clip(result, 0, 255).astype(np.uint8)
+    res_uint8 = np.clip(result, 0, 255).astype(np.uint8)
+    return cv2.cvtColor(res_uint8, cv2.COLOR_LAB2BGR)
 
 
 def composite(
